@@ -7,7 +7,7 @@ import textwrap
 sys.stdout.reconfigure(encoding='utf-8')
 
 
-PARSED_DATA_DIR = './cleared_data/'
+PARSED_DATA_DIR = 'data/cleaned/'
 
 
 def format_content(content, width=100):
