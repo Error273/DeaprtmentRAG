@@ -13,10 +13,45 @@ def split_into_sentences(text: str) -> list[str]:
     return [s.strip() for s in sentences if s.strip()]
 
 
+def merge_short_chunks(chunks: list[str], min_chunk_size: int = 80) -> list[str]:
+    """
+    Склеивает слишком короткие чанки с соседними.
+
+    Чанки типа «Трек 2.» или «Кремлевская, д.» бессмысленны для поиска.
+    Приклеиваем их к следующему чанку, а если следующего нет — к предыдущему.
+    """
+    if not chunks:
+        return chunks
+
+    merged = []
+    carry = ""  # буфер для коротких чанков, ожидающих склейки
+
+    for chunk in chunks:
+        if carry:
+            chunk = carry + " " + chunk
+            carry = ""
+
+        if len(chunk) < min_chunk_size:
+            # Слишком короткий — попробуем склеить со следующим
+            carry = chunk
+        else:
+            merged.append(chunk)
+
+    # Если последний чанк был коротким, приклеиваем к предыдущему
+    if carry:
+        if merged:
+            merged[-1] = merged[-1] + " " + carry
+        else:
+            merged.append(carry)
+
+    return merged
+
+
 def chunk_text(
     text: str,
     chunk_size: int = 500,
     chunk_overlap: int = 50,
+    min_chunk_size: int = 80,
 ) -> list[str]:
     """
     Разбивает текст на чанки по количеству символов с сохранением целых предложений.
@@ -27,6 +62,7 @@ def chunk_text(
         chunk_overlap: Размер перекрытия между соседними чанками (в символах).
                        Берутся последние предложения предыдущего чанка,
                        чтобы не терять контекст на стыке.
+        min_chunk_size: Минимальный размер чанка. Более короткие склеиваются с соседними.
 
     Returns:
         Список строк — чанков.
@@ -74,6 +110,9 @@ def chunk_text(
         # Не добавляем, если он полностью совпадает с предыдущим (из-за overlap)
         if not chunks or chunk_text_str != chunks[-1]:
             chunks.append(chunk_text_str)
+
+    # Пост-обработка: склеиваем слишком короткие чанки
+    chunks = merge_short_chunks(chunks, min_chunk_size)
 
     return chunks
 
