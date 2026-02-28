@@ -53,7 +53,7 @@ def main():
         print(f"\nИщу: '{query}'{filter_info}")
         print("-" * 60)
 
-        results = retriever.search(query, top_k=3, category=category)
+        results = retriever.search(query, top_k=5, category=category)
 
         if not results:
             print("Ничего не найдено.")
