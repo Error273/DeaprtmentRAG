@@ -3,9 +3,12 @@ LLM: обёртка над OpenRouter API для генерации ответо
 
 Использует openai-совместимый API OpenRouter.
 Модель по умолчанию: stepfun/step-3.5-flash:free (бесплатная, быстрая).
+Включает автоматический ретрай при rate-limit (429).
 """
 
-from openai import OpenAI
+import time
+
+from openai import OpenAI, RateLimitError
 
 from rag.config import (
     OPENROUTER_API_KEY,
@@ -16,12 +19,17 @@ from rag.config import (
     SYSTEM_PROMPT,
 )
 
+# Максимум ретраев и начальная задержка (секунды)
+MAX_RETRIES = 3
+RETRY_BASE_DELAY = 2.0
+
 
 class LLM:
     """
     Обёртка над LLM через OpenRouter.
 
     Использует openai SDK (OpenRouter совместим с OpenAI API).
+    При 429 (rate limit) автоматически ждёт и повторяет запрос.
 
     Использование:
         llm = LLM()
@@ -56,9 +64,21 @@ class LLM:
         )
         print(f"LLM инициализирован: {self.model}")
 
+    def _build_messages(self, question: str, context: str) -> list[dict]:
+        """Формирует список сообщений для LLM."""
+        user_message = (
+            f"Контекст:\n{context}\n\n"
+            f"Вопрос: {question}"
+        )
+        return [
+            {"role": "system", "content": self.system_prompt},
+            {"role": "user", "content": user_message},
+        ]
+
     def ask(self, question: str, context: str) -> str:
         """
         Задать вопрос LLM с контекстом из ретривера.
+        При 429 автоматически ретраит до MAX_RETRIES раз.
 
         Args:
             question: Вопрос пользователя.
@@ -67,27 +87,33 @@ class LLM:
         Returns:
             Ответ модели (строка).
         """
-        user_message = (
-            f"Контекст:\n{context}\n\n"
-            f"Вопрос: {question}"
-        )
+        messages = self._build_messages(question, context)
 
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=[
-                {"role": "system", "content": self.system_prompt},
-                {"role": "user", "content": user_message},
-            ],
-            temperature=self.temperature,
-            max_tokens=self.max_tokens,
-        )
+        for attempt in range(MAX_RETRIES + 1):
+            try:
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=messages,
+                    temperature=self.temperature,
+                    max_tokens=self.max_tokens,
+                )
+                return response.choices[0].message.content.strip()
 
-        return response.choices[0].message.content.strip()
+            except RateLimitError as e:
+                if attempt < MAX_RETRIES:
+                    delay = RETRY_BASE_DELAY * (2 ** attempt)
+                    print(f"[LLM] Rate limit (429), ретрай через {delay:.0f}с... (попытка {attempt + 1}/{MAX_RETRIES})")
+                    time.sleep(delay)
+                else:
+                    raise RuntimeError(
+                        f"LLM недоступна после {MAX_RETRIES} попыток (rate limit). "
+                        f"Попробуйте позже."
+                    ) from e
 
     def ask_stream(self, question: str, context: str):
         """
         Стриминговый вариант — отдаёт токены по мере генерации.
-        Полезно для Telegram-бота или веб-интерфейса.
+        При 429 автоматически ретраит.
 
         Args:
             question: Вопрос пользователя.
@@ -96,23 +122,31 @@ class LLM:
         Yields:
             Строковые токены по мере генерации.
         """
-        user_message = (
-            f"Контекст:\n{context}\n\n"
-            f"Вопрос: {question}"
-        )
+        messages = self._build_messages(question, context)
 
-        stream = self.client.chat.completions.create(
-            model=self.model,
-            messages=[
-                {"role": "system", "content": self.system_prompt},
-                {"role": "user", "content": user_message},
-            ],
-            temperature=self.temperature,
-            max_tokens=self.max_tokens,
-            stream=True,
-        )
+        for attempt in range(MAX_RETRIES + 1):
+            try:
+                stream = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=messages,
+                    temperature=self.temperature,
+                    max_tokens=self.max_tokens,
+                    stream=True,
+                )
 
-        for chunk in stream:
-            delta = chunk.choices[0].delta
-            if delta.content:
-                yield delta.content
+                for chunk in stream:
+                    delta = chunk.choices[0].delta
+                    if delta.content:
+                        yield delta.content
+                return  # Успешно отстримили — выходим
+
+            except RateLimitError as e:
+                if attempt < MAX_RETRIES:
+                    delay = RETRY_BASE_DELAY * (2 ** attempt)
+                    print(f"[LLM] Rate limit (429), ретрай через {delay:.0f}с... (попытка {attempt + 1}/{MAX_RETRIES})")
+                    time.sleep(delay)
+                else:
+                    raise RuntimeError(
+                        f"LLM недоступна после {MAX_RETRIES} попыток (rate limit). "
+                        f"Попробуйте позже."
+                    ) from e

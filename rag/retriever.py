@@ -118,12 +118,16 @@ class Retriever:
                 must=[FieldCondition(key="category", match=MatchValue(value=category))]
             )
 
-        results = self.client.query_points(
-            collection_name=self.collection_name,
-            query=query_vector,
-            query_filter=query_filter,
-            limit=top_k,
-        )
+        try:
+            results = self.client.query_points(
+                collection_name=self.collection_name,
+                query=query_vector,
+                query_filter=query_filter,
+                limit=top_k,
+            )
+        except Exception as e:
+            print(f"[WARNING] Qdrant недоступен, используем только BM25: {e}")
+            return []
 
         return [
             {
