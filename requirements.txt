@@ -1,0 +1,18 @@
+# RAG-система кафедры аэрогидромеханики КФУ
+
+# Core
+openai>=1.0
+python-dotenv
+pydantic>=2.0
+
+# Embeddings & Search
+sentence-transformers
+qdrant-client
+rank-bm25
+
+# API
+fastapi
+uvicorn[standard]
+
+# Telegram Bot
+aiogram>=3.0

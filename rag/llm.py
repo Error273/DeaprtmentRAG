@@ -64,18 +64,40 @@ class LLM:
         )
         print(f"LLM инициализирован: {self.model}")
 
-    def _build_messages(self, question: str, context: str) -> list[dict]:
-        """Формирует список сообщений для LLM."""
+    def _build_messages(
+        self,
+        question: str,
+        context: str,
+        history: list[dict] | None = None,
+    ) -> list[dict]:
+        """
+        Формирует список сообщений для LLM.
+
+        Args:
+            question: Вопрос пользователя.
+            context: Контекст из ретривера.
+            history: Опциональная история диалога — список
+                     [{"role": "user"/"assistant", "content": "..."}].
+        """
         user_message = (
             f"Контекст:\n{context}\n\n"
             f"Вопрос: {question}"
         )
-        return [
-            {"role": "system", "content": self.system_prompt},
-            {"role": "user", "content": user_message},
-        ]
+        messages = [{"role": "system", "content": self.system_prompt}]
 
-    def ask(self, question: str, context: str) -> str:
+        # Добавляем историю диалога (если есть)
+        if history:
+            messages.extend(history)
+
+        messages.append({"role": "user", "content": user_message})
+        return messages
+
+    def ask(
+        self,
+        question: str,
+        context: str,
+        history: list[dict] | None = None,
+    ) -> str:
         """
         Задать вопрос LLM с контекстом из ретривера.
         При 429 автоматически ретраит до MAX_RETRIES раз.
@@ -83,11 +105,12 @@ class LLM:
         Args:
             question: Вопрос пользователя.
             context: Контекст (полные тексты найденных страниц).
+            history: Опциональная история диалога.
 
         Returns:
             Ответ модели (строка).
         """
-        messages = self._build_messages(question, context)
+        messages = self._build_messages(question, context, history)
 
         for attempt in range(MAX_RETRIES + 1):
             try:
@@ -110,7 +133,12 @@ class LLM:
                         f"Попробуйте позже."
                     ) from e
 
-    def ask_stream(self, question: str, context: str):
+    def ask_stream(
+        self,
+        question: str,
+        context: str,
+        history: list[dict] | None = None,
+    ):
         """
         Стриминговый вариант — отдаёт токены по мере генерации.
         При 429 автоматически ретраит.
@@ -118,11 +146,12 @@ class LLM:
         Args:
             question: Вопрос пользователя.
             context: Контекст из ретривера.
+            history: Опциональная история диалога.
 
         Yields:
             Строковые токены по мере генерации.
         """
-        messages = self._build_messages(question, context)
+        messages = self._build_messages(question, context, history)
 
         for attempt in range(MAX_RETRIES + 1):
             try:
